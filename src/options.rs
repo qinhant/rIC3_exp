@@ -20,6 +20,10 @@ pub struct Options {
     /// for btor model, the file name should be suffixed with .btor or .btor2
     pub model: PathBuf,
 
+    /// model map file for aiger format
+    #[arg(short, long)]
+    pub model_map: Option<String>,
+
     /// certificate path
     pub certificate: Option<PathBuf>,
 

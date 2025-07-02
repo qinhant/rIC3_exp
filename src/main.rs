@@ -12,6 +12,7 @@ use rIC3::{
     portfolio::portfolio_main,
 };
 use std::{
+    collections::BTreeMap,
     env, fs,
     mem::{self, transmute},
     process::exit,
@@ -44,6 +45,12 @@ fn main() {
     let ts = aig.ts();
     if options.preprocess.sec {
         panic!("Error: sec not support");
+    }
+    if let Some(ref map_file) = options.model_map {
+        var2name::init_var2name(map_file, options.model.to_str().unwrap());
+        var2name::init_var2name_refine_inv(BTreeMap::from_iter(
+            ts.rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
+        ));
     }
     let mut engine: Box<dyn Engine> = match options.engine {
         options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, vec![])),

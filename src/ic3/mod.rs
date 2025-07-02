@@ -15,6 +15,7 @@ use rand::{SeedableRng, rngs::StdRng};
 use satif::Satif;
 use statistic::Statistic;
 use std::{iter::once, time::Instant};
+use std::collections::BTreeMap;
 
 mod activity;
 mod frame;
@@ -372,6 +373,11 @@ impl IC3 {
             ts.constraints.clone()
         };
         let rng = StdRng::seed_from_u64(options.rseed);
+        if options.model_map.is_some() {
+            var2name::init_var2name_refine_inv(BTreeMap::from_iter(
+                ts.rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
+            ));
+        }
         Self {
             options,
             origin_ts,
