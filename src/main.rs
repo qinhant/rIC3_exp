@@ -18,6 +18,7 @@ use std::{
     process::exit,
     ptr,
 };
+use secIC3::RelationData;
 
 fn main() {
     if env::var("RUST_LOG").is_err() {
@@ -43,6 +44,10 @@ fn main() {
         _ => panic!("Error: unsupported file format"),
     };
     let ts = aig.ts();
+    // for (k, v) in ts.rst.iter() {
+    //     println!("new to origin: {:?} -> {:?}", k,  v);
+    // }
+
     if options.preprocess.sec {
         panic!("Error: sec not support");
     }
@@ -52,6 +57,26 @@ fn main() {
             ts.rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
         ));
     }
+
+    if let Some(ref relation_file) = options.relation_file {
+        RelationData::init_relation_data(relation_file);
+        let data = RelationData::get_relation_data();
+        println!(
+            "✅ RelationData initialized: {} rows loaded",
+            data.entries.len()
+        );
+        for (i, entry) in data.entries.iter().take(5).enumerate() {
+            println!("Row {}: {:?}", i, entry);
+        }
+    }
+
+    // for (k, v) in ts.rst.iter() {
+    //     println!("new to origin: {:?} -> {:?} {:?}", k, v, var2name::var2info(k.0 as usize));
+    // }
+    // for (k, v) in ts.oldtonew.iter() {
+    //     println!("origin to new: {:?} {:?} -> {:?}", k, var2name::var2name(v.0 as usize), v);
+    // }
+    
     let mut engine: Box<dyn Engine> = match options.engine {
         options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, vec![])),
         options::Engine::Kind => Box::new(Kind::new(options.clone(), ts)),

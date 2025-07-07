@@ -48,6 +48,10 @@ impl Transys {
                 self.rst.remove(&v);
             }
         }
+        self.oldtonew.clear();
+        for (k, v) in self.rst.iter() {
+            self.oldtonew.insert(*v, *k);
+    }
     }
 
     pub fn rearrange(&mut self) {
@@ -75,7 +79,11 @@ impl Transys {
             .iter()
             .filter_map(|(k, &v)| domain_map.get(k).map(|&dk| (dk, v)))
             .collect();
+        self.oldtonew.clear();
+        for (k, v) in self.rst.iter() {
+            self.oldtonew.insert(*v, *k);
     }
+}
 
     pub fn simplify(&mut self) {
         self.coi_refine();

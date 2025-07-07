@@ -27,6 +27,14 @@ pub struct Options {
     /// certificate path
     pub certificate: Option<PathBuf>,
 
+    // Relation file path
+    #[arg(short, long)]
+    pub relation_file: Option<PathBuf>,
+
+    // use symmetric cube 
+    #[arg(long, default_value_t = false)]
+    pub symmetry: bool,
+
     /// certify with certifaiger
     #[arg(long, default_value_t = false)]
     pub certify: bool,

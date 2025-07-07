@@ -92,6 +92,11 @@ impl Transys {
         for v in Var::CONST..=rel.max_var() {
             rst.insert(v, v);
         }
+        let mut oldtonew = GHashMap::new();
+        oldtonew.clear();
+        for (k, v) in rst.iter() {
+            oldtonew.insert(*v, *k);
+        }
         Transys {
             input,
             latch,
@@ -103,12 +108,18 @@ impl Transys {
             fairness,
             rel,
             rst,
+            oldtonew,
         }
     }
 }
 
-pub fn aig_preprocess(aig: &Aig, options: &options::Options) -> (Aig, GHashMap<Var, Var>) {
+pub fn aig_preprocess(
+    aig: &Aig,
+    options: &options::Options,
+) -> (Aig, GHashMap<Var, Var>, GHashMap<Var, Var>) {
     let (mut aig, mut remap) = aig.coi_refine();
+    let mut remap_final = GHashMap::new(); // final → original
+    let mut remap_rev = GHashMap::new();   // original → final
     if !(options.preprocess.no_abc
         || matches!(options.engine, options::Engine::IC3) && options.ic3.inn)
     {
@@ -124,18 +135,19 @@ pub fn aig_preprocess(aig: &Aig, options: &options::Options) -> (Aig, GHashMap<V
         aig = abc_preprocess(aig);
         let remap2;
         (aig, remap2) = aig.coi_refine();
-        remap = {
-            let mut remap_final = GHashMap::new();
-            for (x, y) in remap2 {
-                if let Some(z) = remap.get(&y) {
-                    remap_final.insert(x, *z);
-                }
+        
+
+        for (x, y) in remap2 {
+            if let Some(z) = remap.get(&y) {
+                remap_final.insert(x, *z);
+                remap_rev.insert(*z, x);
             }
-            remap_final
         }
+
+        remap = remap_final;
     }
     aig.constraints.retain(|e| !e.is_constant(true));
-    (aig, remap)
+    (aig, remap, remap_rev)
 }
 
 pub struct AigFrontend {
@@ -195,9 +207,10 @@ impl AigFrontend {
                 aig.compress_property();
             }
         }
-        let (aig, rst) = aig_preprocess(&aig, opt);
+        let (aig, rst, oldtonew) = aig_preprocess(&aig, opt);
         let mut ts = Transys::from_aig(&aig, true);
         ts.rst = rst;
+        ts.oldtonew = oldtonew;
         if opt.l2s {
             ts = ts.l2s();
         }

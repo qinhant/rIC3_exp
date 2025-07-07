@@ -14,6 +14,7 @@ pub struct NoDepTransys {
     pub constraint: LitVec,
     pub rel: Cnf,
     pub rst: GHashMap<Var, Var>,
+    pub oldtonew: GHashMap<Var, Var>,
 }
 
 impl NoDepTransys {
@@ -64,6 +65,10 @@ impl NoDepTransys {
             .iter()
             .filter_map(|(k, &v)| domain_map.get(k).map(|&dk| (dk, v)))
             .collect();
+        self.oldtonew.clear();
+        for (k, v) in self.rst.iter() {
+            self.oldtonew.insert(*v, *k);
+        }
     }
 }
 
@@ -114,6 +119,13 @@ impl TransysIf for NoDepTransys {
             .get(&lit.var())
             .map(|v| v.lit().not_if(!lit.polarity()))
     }
+
+    #[inline]
+    fn translate(&self, lit: Lit) -> Option<Lit> {
+        self.oldtonew
+            .get(&lit.var())
+            .map(|v| v.lit().not_if(!lit.polarity()))
+    }
 }
 
 impl Transys {
@@ -127,6 +139,7 @@ impl Transys {
             constraint: self.constraint,
             rel: self.rel.lower(),
             rst: self.rst,
+            oldtonew: self.oldtonew,
         }
     }
 }

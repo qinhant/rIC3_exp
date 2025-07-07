@@ -40,6 +40,8 @@ pub trait TransysIf {
 
     fn restore(&self, lit: Lit) -> Option<Lit>;
 
+    fn translate(&self, lit: Lit) -> Option<Lit>;
+
     #[inline]
     fn var_next(&self, var: Var) -> Var {
         self.next(var.lit()).var()
@@ -102,6 +104,7 @@ pub struct Transys {
     pub fairness: LitVec,
     pub rel: DagCnf,
     pub rst: GHashMap<Var, Var>,
+    pub oldtonew: GHashMap<Var, Var>,
 }
 
 impl TransysIf for Transys {
@@ -153,6 +156,13 @@ impl TransysIf for Transys {
     }
 
     #[inline]
+    fn translate(&self, lit: Lit) -> Option<Lit> {
+        self.oldtonew
+            .get(&lit.var())
+            .map(|v| v.lit().not_if(!lit.polarity()))
+    }
+
+    #[inline]
     fn add_latch(&mut self, latch: Var, init: Option<bool>, next: Lit) {
         self.latch.push(latch);
         self.next.insert(latch, next);
@@ -182,6 +192,10 @@ impl Transys {
                 n = u;
             }
             unique.insert(n.var());
+        }
+        self.oldtonew.clear();
+        for (k, v) in self.rst.iter() {
+            self.oldtonew.insert(*v, *k);
         }
     }
 }

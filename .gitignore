@@ -4,3 +4,6 @@ perf.data
 perf.data.old
 flamegraph.svg
 certifaiger.aig
+--map-file
+*log
+*.diff

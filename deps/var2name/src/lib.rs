@@ -7,6 +7,7 @@ use std::io::BufRead;
 use std::sync::RwLock;
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub enum VarType {
     Input,
     Latch,
@@ -97,6 +98,10 @@ impl Var2Name {
 
     pub fn new(map_filename: &str, aig_filename: &str) -> Self {
         let (input_count, latch_count) = Self::get_num_of_input_latch(aig_filename);
+        println!(
+            "Input count: {}, Latch count: {}",
+            input_count, latch_count
+        );
         let vars_vec = Self::collect_vars(map_filename);
         let calc_node_id = |var: &VarInfo| match var.node_type {
             VarType::Input => 1 + var.id,
@@ -124,6 +129,15 @@ impl Var2Name {
             vars: vars_map,
             refine_inv: Map::new(),
         };
+    }
+    pub fn get_varinfo(&self, mut id: usize) -> Option<&VarInfo> {
+        // Step 1: Map refined ID back to original ID
+        if let Some(&original_id) = self.refine_inv.get(&id) {
+            id = original_id;
+        }
+    
+        // Step 2: Return the full VarInfo if it exists
+        self.vars.get(&id)
     }
     pub fn get_name(&self, mut id: usize) -> String {
         match self.refine_inv.get(&id) {

@@ -406,6 +406,7 @@ impl Engine for IC3 {
         if !self.base() {
             return Some(false);
         }
+
         loop {
             let start = Instant::now();
             loop {
