@@ -166,7 +166,17 @@ impl Solver {
         for l in lemma.iter() {
             self.add_domain(l.var(), true);
         }
-        self.add_clause_inner(lemma, ClauseKind::Lemma)
+        let cref = self.add_clause_inner(lemma, ClauseKind::Lemma);
+
+        if self.options.symmetry {
+            let sym_lemma: LitVec = LitVec::new_from_slice(lemma).symmetric();
+            for l in sym_lemma.iter() {
+                self.add_domain(l.var(), true);
+            }
+            self.add_clause_inner(&sym_lemma, ClauseKind::Lemma);
+        }
+
+        cref
     }
 
     // #[inline]

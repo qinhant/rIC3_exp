@@ -212,13 +212,20 @@ impl IC3 {
         contained_check: bool,
         po: Option<ProofObligation>,
     ) -> bool {
+        let sym_lemma = Lemma::new(lemma.symmetric());
         let lemma = Lemma::new(lemma);
         trace!("add lemma: frame:{frame}, {lemma}");
+        if self.options.symmetry{
+            trace!("symmetric lemma: frame:{frame}, {sym_lemma}");
+        }
         if frame == 0 {
             assert!(self.frame.len() == 1);
             self.solvers[0].add_lemma(&!lemma.cube());
             if !self.options.ic3.no_pred_prop && self.level() == frame {
                 self.bad_solver.add_clause(&!lemma.cube());
+                if self.options.symmetry {
+                    self.bad_solver.add_clause(&!sym_lemma.cube());
+                }
             }
             self.frame[0].push(FrameLemma::new(lemma, po, None));
             return false;
@@ -244,6 +251,9 @@ impl IC3 {
                         }
                         if !self.options.ic3.no_pred_prop && self.level() == frame {
                             self.bad_solver.add_clause(&!lemma.cube());
+                            if self.options.symmetry {
+                                self.bad_solver.add_clause(&!sym_lemma.cube());
+                            }
                         }
                         self.frame[frame].push(FrameLemma::new(lemma, po, None));
                         self.frame.early = self.frame.early.min(i + 1);
@@ -271,6 +281,9 @@ impl IC3 {
         }
         if !self.options.ic3.no_pred_prop && self.level() == frame {
             self.bad_solver.add_clause(&!lemma.cube());
+            if self.options.symmetry {
+                self.bad_solver.add_clause(&!sym_lemma.cube());
+            }
         }
         self.frame[frame].push(FrameLemma::new(lemma, po, None));
         self.frame.early = self.frame.early.min(begin);

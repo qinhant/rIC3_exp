@@ -48,6 +48,9 @@ impl Debug for VarInfo {
 pub struct Var2Name {
     vars: Map<usize, VarInfo>,
     refine_inv: Map<usize, usize>, // from current id to original id
+    refine: Map<usize, usize>, // from original id to current id
+    input_count: usize,
+    latch_count: usize,
 }
 
 impl Var2Name {
@@ -128,6 +131,9 @@ impl Var2Name {
         return Var2Name {
             vars: vars_map,
             refine_inv: Map::new(),
+            refine: Map::new(),
+            input_count: input_count,
+            latch_count: latch_count,
         };
     }
     pub fn get_varinfo(&self, mut id: usize) -> Option<&VarInfo> {
@@ -171,6 +177,26 @@ impl Var2Name {
             Some(var_info) => return Some(var_info.clone()),
         }
     }
+
+    pub fn new2origin(&self, mut id: usize) -> Option<usize> {
+        match self.refine_inv.get(&id) {
+            None => {
+                // warn!("refine inv not found for id {}", id);
+                return None;
+            }
+            Some(&origin_id) => return Some(origin_id),
+        }
+    }
+
+    pub fn origin2new(&self, mut id: usize) -> Option<usize> {
+        match self.refine.get(&id) {
+            None => {
+                // warn!("refine inv not found for id {}", id);
+                return None;
+            }
+            Some(&new_id) => return Some(new_id),
+        }
+    }
 }
 
 static _VAR2NAME: OnceCell<RwLock<Var2Name>> = OnceCell::new();
@@ -178,12 +204,27 @@ static _VAR2NAME: OnceCell<RwLock<Var2Name>> = OnceCell::new();
 pub fn init_var2name(map_filename: &str, aig_filename: &str) {
     let _ = _VAR2NAME.set(RwLock::new(Var2Name::new(map_filename, aig_filename)));
 }
-pub fn init_var2name_refine_inv(refine_inv: Map<usize, usize>) {
+pub fn init_var2name_refine_inv(refine_inv: Map<usize, usize>, refine: Map<usize, usize>) {
     trace!(
         "Initialized var2name with refine inversions {:?}",
         refine_inv
     );
     _VAR2NAME.get().unwrap().write().unwrap().refine_inv = refine_inv;
+    _VAR2NAME.get().unwrap().write().unwrap().refine = refine;
+}
+
+pub fn get_origin_id(var: usize) -> Option<usize> {
+    return match _VAR2NAME.get() {
+        Some(var2name) => var2name.read().unwrap().refine_inv.get(&var).cloned(),
+        None => None,
+    };
+}
+
+pub fn get_new_id(var: usize) -> Option<usize> {
+    return match _VAR2NAME.get() {
+        Some(var2name) => var2name.read().unwrap().refine.get(&var).cloned(),
+        None => None,
+    };
 }
 
 pub fn var2name(var: usize) -> String {
@@ -197,5 +238,19 @@ pub fn var2info(var: usize) -> Option<VarInfo> {
     return match _VAR2NAME.get() {
         Some(var2name) => var2name.read().unwrap().get(var),
         None => None,
+    };
+}
+
+pub fn get_inputcount() -> usize {
+    return match _VAR2NAME.get() {
+        Some(var2name) => var2name.read().unwrap().input_count,
+        None => 0,
+    };
+}
+
+pub fn get_latchcount() -> usize {
+    return match _VAR2NAME.get() {
+        Some(var2name) => var2name.read().unwrap().latch_count,
+        None => 0,
     };
 }

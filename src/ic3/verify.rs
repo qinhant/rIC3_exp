@@ -1,12 +1,12 @@
 use super::{IC3, proofoblig::ProofObligation};
-use crate::transys::{Transys, TransysCtx, TransysIf, unroll::TransysUnroll};
+use crate::{options, transys::{unroll::TransysUnroll, Transys, TransysCtx, TransysIf}};
 use cadical::Solver;
 use log::{error, info};
 use logic_form::{Lemma, LitVec};
 use satif::Satif;
 use std::ops::Deref;
 
-pub fn verify_invariant(ts: &TransysCtx, invariants: &[Lemma]) -> bool {
+pub fn verify_invariant(ts: &TransysCtx, invariants: &[Lemma], options: &options::Options) -> bool {
     let mut solver = Solver::new();
     ts.load_trans(&mut solver, true);
     for lemma in invariants {
@@ -17,6 +17,10 @@ pub fn verify_invariant(ts: &TransysCtx, invariants: &[Lemma]) -> bool {
     }
     for lemma in invariants {
         solver.add_clause(&!lemma.deref());
+        if options.symmetry {
+            let sym_lemma = Lemma::new(lemma.symmetric());
+            solver.add_clause(&!sym_lemma.deref());
+        }
     }
     if solver.solve(&ts.bad.cube()) {
         return false;
@@ -35,7 +39,7 @@ impl IC3 {
             return;
         }
         let invariants = self.frame.invariant();
-        if !verify_invariant(&self.ts, &invariants) {
+        if !verify_invariant(&self.ts, &invariants, &self.options) {
             error!("invariant varify failed");
             panic!();
         }

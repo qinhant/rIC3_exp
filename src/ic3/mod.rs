@@ -376,6 +376,9 @@ impl IC3 {
         if options.model_map.is_some() {
             var2name::init_var2name_refine_inv(BTreeMap::from_iter(
                 ts.rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
+            ),
+            BTreeMap::from_iter(
+                ts.rst.iter().map(|(k, v)| (v.0 as usize, k.0 as usize)),
             ));
         }
         Self {

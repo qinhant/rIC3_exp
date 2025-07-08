@@ -55,11 +55,14 @@ fn main() {
         var2name::init_var2name(map_file, options.model.to_str().unwrap());
         var2name::init_var2name_refine_inv(BTreeMap::from_iter(
             ts.rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
+        ),
+        BTreeMap::from_iter(
+            ts.rst.iter().map(|(k, v)| (v.0 as usize, k.0 as usize)),
         ));
     }
 
     if let Some(ref relation_file) = options.relation_file {
-        RelationData::init_relation_data(relation_file);
+        RelationData::init_relation_data(relation_file, var2name::get_inputcount(), var2name::get_latchcount());
         let data = RelationData::get_relation_data();
         println!(
             "✅ RelationData initialized: {} rows loaded",
