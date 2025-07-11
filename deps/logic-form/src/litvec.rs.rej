@@ -1,0 +1,101 @@
+--- src/litvec.rs
++++ src/litvec.rs
+@@ -2,12 +2,14 @@ use crate::{Lit, Var};
+ use giputils::hash::GHashSet;
+ use std::{
+     cmp::Ordering,
++    collections::BTreeMap,
+     fmt::{self, Debug, Display},
+     ops::{Deref, DerefMut, Not},
+     slice,
+ };
++use var2name::var2info;
+ 
+-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
++#[derive(Clone, Hash, PartialEq, Eq)]
+ pub struct LitVec {
+     lits: Vec<Lit>,
+ }
+@@ -364,7 +366,81 @@ impl AsRef<[Lit]> for LitVec {
+ }
+ 
+ impl Display for LitVec {
++    #[inline]
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(f, "[")?;
++        struct Value {
++            pub known_mask: u64,
++            pub value: u64,
++            pub lits: Vec<Lit>,
++        }
++        let mut data = BTreeMap::<String, Value>::new();
++        let mut wrote = false;
++        let mut write_comma = |f: &mut fmt::Formatter<'_>| {
++            if wrote {
++                write!(f, ", ")?;
++            } else {
++                wrote = true;
++            }
++            Ok(())
++        };
++        let mut write_wrap = |info: &Lit| {
++            write_comma(f)?;
++            write!(f, "{}", info)
++        };
++        for lit in &self.lits {
++            let Some(info) = var2info(lit.var().into()) else {
++                write_wrap(&lit)?;
++                continue;
++            };
++            if !info.is_vector {
++                write_wrap(&lit)?;
++                continue;
++            }
++            let entry = data.entry(info.name).or_insert(Value {
++                known_mask: 0,
++                value: 0,
++                lits: Vec::new(),
++            });
++            entry.known_mask |= (1 as u64) << info.index;
++            entry.value |= (lit.polarity() as u64) << info.index;
++            entry.lits.push(*lit);
++        }
++        for (name, entry) in data {
++            write_comma(f)?;
++            if entry.lits.len() == 1 {
++                write!(f, "{}", entry.lits[0])?;
++                continue;
++            }
++            let max_index = 63 - entry.known_mask.leading_zeros();
++            let min_index = entry.known_mask.trailing_zeros();
++            let val = entry.value >> min_index;
++            let width = max_index - min_index + 1;
++            let all_known = (min_index..max_index).all(|i| entry.known_mask & (1 << i) != 0);
++            if all_known {
++                write!(f, "{}[{}:{}]={:x}", name, max_index, min_index, val)?;
++                continue;
++            }
++            write!(f, "{}[{}:{}]=", name, max_index, min_index)?;
++            for i in 0..width {
++                write!(
++                    f,
++                    "{}",
++                    if entry.known_mask & (1 << i) != 0 {
++                        if ((val >> i) & 1) != 0 { "1" } else { "0" }
++                    } else {
++                        "x"
++                    }
++                )?;
++            }
++        }
++        return write!(f, "]");
++    }
++}
++
++impl Debug for LitVec {
++    #[inline]
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        self.lits.fmt(f)
++        Display::fmt(&self, f)
+     }
+ 

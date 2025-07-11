@@ -1,0 +1,20 @@
+--- src/lib.rs
++++ src/lib.rs
+@@ -26,6 +26,8 @@ use std::{
+     ops::{Add, AddAssign, Deref, Not},
+ };
+ 
++use var2name;
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+ pub struct Var(pub u32);
+ 
+@@ -83,7 +85,7 @@ impl Deref for Var {
+ impl Display for Var {
+     #[inline]
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        write!(f, "{}", self.0)
++        write!(f, "{}", var2name::var2name(self.0 as usize))
+     }
+ }
+ 

@@ -1,0 +1,7 @@
+--- Cargo.toml
++++ Cargo.toml
+@@ -14,3 +14,4 @@ rust-version = "1.85"
+ [dependencies]
+ giputils = { path = "../giputils", version = "0.3.0" }
+ ahash = "0.8.11"
++var2name = { path = "../var2name" }
