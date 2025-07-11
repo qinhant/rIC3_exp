@@ -9,3 +9,5 @@ rust-version = "1.89"
 [dependencies]
 once_cell = "1.21.3"
 log = "0.4.27"
+logic-form = { path = "../logic-form", version = "0.3.4" }
+var2name = { path = "../var2name" }

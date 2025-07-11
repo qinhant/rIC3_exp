@@ -16,7 +16,6 @@ pub struct TransysCtx {
     prev_map: LitMap<Lit>,
     pub max_latch: Var,
     pub rst: GHashMap<Var, Var>,
-    pub oldtonew: GHashMap<Var, Var>,
 }
 
 impl TransysIf for TransysCtx {
@@ -72,12 +71,12 @@ impl TransysIf for TransysCtx {
             .map(|v| v.lit().not_if(!lit.polarity()))
     }
 
-    #[inline]
-    fn translate(&self, lit: Lit) -> Option<Lit> {
-        self.oldtonew
-            .get(&lit.var())
-            .map(|v| v.lit().not_if(!lit.polarity()))
-    }
+    // #[inline]
+    // fn translate(&self, lit: Lit) -> Option<Lit> {
+    //     self.oldtonew
+    //         .get(&lit.var())
+    //         .map(|v| v.lit().not_if(!lit.polarity()))
+    // }
 }
 
 impl TransysCtx {
@@ -181,7 +180,6 @@ impl Transys {
             prev_map,
             max_latch,
             rst: self.rst,
-            oldtonew: self.oldtonew,
         }
     }
 }

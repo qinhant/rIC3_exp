@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::RwLock;
 use std::path::Path;
+use logic_form::{Lemma, Lit, LitSet, LitVec, Var};
 
 #[derive(Clone, Debug)]
 pub struct RelationData {
@@ -34,6 +35,7 @@ impl RelationData {
         let reader = BufReader::new(file);
     
         let mut entries = Vec::new();
+        // Maps upon original variables
         let mut sym_map = Map::new();
         let mut equiv_map = Map::new();
         let mut eqinit_map = Map::new();
@@ -65,6 +67,7 @@ impl RelationData {
             entries.push(entry);
     
             sym_map.insert(f0, f1);
+            // trace!("Adding symmetric mapping: {} {} -> {} {}", f0, &Var::new(f0 as usize), f1, &Var::new(f1 as usize));
             equiv_map.insert(f0, f2);
             eqinit_map.insert(f0, f3);
         }
@@ -91,7 +94,82 @@ impl RelationData {
         self.eqinit_map.get(&key).copied()
     }
 
+    /// Get the symmetric variable for the new variable
+    pub fn get_sym_var_new(&self, new_var: usize) -> Option<usize> {
+        let origin_var = var2name::get_origin_id(new_var);
+        self.get_sym_var(origin_var.unwrap() as i64).and_then(|sym_var| var2name::get_new_id(sym_var as usize))
+    }
+
+    /// Get the equivalence predicate for the new variable
+    pub fn get_equiv_predicate_new(&self, new_var: usize) -> Option<usize> {
+        let origin_var = var2name::get_origin_id(new_var);
+        if origin_var == None{
+            trace!("No origin variable found for new_var: {}", new_var);
+        }
+        if self.get_equiv_predicate(origin_var.unwrap() as i64) == None {
+            trace!("No equivalence predicate found for origin variable: {}", origin_var.unwrap());
+        }
+        let predicate = self.get_equiv_predicate(origin_var.unwrap() as i64).unwrap();
+        match predicate {
+            -1 => None,
+            _ => var2name::get_new_id(predicate as usize),
+        }
+    }
+
+    /// Get the eqinit predicate for the new variable
+    pub fn get_eqinit_predicate_new(&self, new_var: usize) -> Option<usize> {
+        let origin_var = var2name::get_origin_id(new_var);
+        let predicate = self.get_eqinit_predicate(origin_var.unwrap() as i64).unwrap();
+        match predicate {
+            -1 => None,
+            _ => var2name::get_new_id(predicate as usize),
+        }
+    }
+
 
 }
 
 static RELATION_DATA: OnceCell<RwLock<RelationData>> = OnceCell::new();
+
+pub fn symmetric_cube(cube: &LitVec) -> LitVec {
+    let mut result = LitVec::new_with(cube.len());
+    let relation = RelationData::get_relation_data();
+
+    for &lit in cube.iter() {
+        let var: Var = lit.var(); // get the variable id as i64 for map lookup
+        if let Some(sym_var) = relation.get_sym_var_new(var.0 as usize){
+            // Create new literal with symmetric variable and same polarity
+            let sym_lit = Lit::new(Var::new(sym_var), lit.polarity());
+            result.push(sym_lit);
+        }
+    //     if let Some(origin_var) = var2name::get_origin_id(var.0 as usize) {
+    //         // Lookup symmetric variable
+    //         if let Some(sym_var) = relation.get_sym_var(origin_var as i64) {
+    //             // Map to the new variable again
+    //             if let Some(new_sym_var) = var2name::get_new_id(sym_var as usize){
+
+    //             // Create new literal with symmetric variable and same polarity
+    //             let sym_lit = Lit::new(Var::new(new_sym_var), lit.polarity());
+
+    //             result.push(sym_lit);
+    //         }
+    //         } else {
+    //             panic!("No symmetric variable found for {:?}", var);
+    //         }
+    // }
+    }
+
+    result
+}
+
+pub fn get_input_latch_num(filename: &str) -> (usize, usize) {
+    let file = File::open(filename).unwrap();
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let parts: Vec<&str> = line.trim().split_whitespace().collect();
+    assert!(parts.len() >= 6, "Invalid first line format: {}", line);
+    let input_count = parts[2].parse::<usize>().unwrap();
+    let latch_count = parts[3].parse::<usize>().unwrap();
+    return (input_count, latch_count);
+}

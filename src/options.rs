@@ -27,13 +27,25 @@ pub struct Options {
     /// certificate path
     pub certificate: Option<PathBuf>,
 
-    // Relation file path
+    /// Relation file path
     #[arg(short, long)]
     pub relation_file: Option<PathBuf>,
 
-    // use symmetric cube 
+    /// use symmetric cube 
     #[arg(long, default_value_t = false)]
     pub symmetry: bool,
+
+    /// use equivalence predicate
+    #[arg(long, default_value_t = false)]
+    pub equiv_predicate: bool,
+
+    /// use eqinit predicate
+    #[arg(long, default_value_t = false)]
+    pub eqinit_predicate: bool,
+
+    /// default replacement algorithm is total replacement
+    #[arg(long, default_value_t = false)]
+    pub iterative_predicate_replacement: bool,
 
     /// certify with certifaiger
     #[arg(long, default_value_t = false)]

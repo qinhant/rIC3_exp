@@ -11,6 +11,9 @@ use giputils::hash::{GHashMap, GHashSet};
 use log::{error, warn};
 use logic_form::{Lit, LitVec, Var};
 use std::process::exit;
+use var2name::var2info;
+use secIC3::RelationData;
+use log::trace;
 
 impl From<&Transys> for Aig {
     fn from(ts: &Transys) -> Self {
@@ -92,11 +95,11 @@ impl Transys {
         for v in Var::CONST..=rel.max_var() {
             rst.insert(v, v);
         }
-        let mut oldtonew = GHashMap::new();
-        oldtonew.clear();
-        for (k, v) in rst.iter() {
-            oldtonew.insert(*v, *k);
-        }
+        // let mut oldtonew = GHashMap::new();
+        // oldtonew.clear();
+        // for (k, v) in rst.iter() {
+        //     oldtonew.insert(*v, *k);
+        // }
         Transys {
             input,
             latch,
@@ -108,7 +111,6 @@ impl Transys {
             fairness,
             rel,
             rst,
-            oldtonew,
         }
     }
 }
@@ -116,14 +118,33 @@ impl Transys {
 pub fn aig_preprocess(
     aig: &Aig,
     options: &options::Options,
-) -> (Aig, GHashMap<Var, Var>, GHashMap<Var, Var>) {
+) -> (Aig, GHashMap<Var, Var>) {
+    let aig1 = aig.clone();
     let (mut aig, mut remap) = aig.coi_refine();
-    let mut remap_final = GHashMap::new(); // final → original
-    let mut remap_rev = GHashMap::new();   // original → final
+
+    if options.equiv_predicate{
+        let relation = RelationData::get_relation_data();
+        // Step 1: Get unique values from remap
+        let remap_values: GHashSet<_> = remap.values().copied().collect();
+        // Step 2: Use values to index other_map, collect non -1 values
+        let predicate_set: GHashSet<_> = remap_values
+            .into_iter()
+            .filter_map(|val| {
+                relation.equiv_map.get(&(val.0 as i64)).copied() // get value from other_map
+            })
+            .filter(|&v| v != -1) // exclude -1
+            .map(|v| Var::new(v as usize))
+            .collect();
+        (aig, remap) = aig1.coi_refine_preserve(&predicate_set);
+        for (v1, v2) in remap.iter(){
+            trace!("Remapped {:?} to {:?}", v1, v2);
+        }
+    }
+    let mut remap_final: GHashMap<Var, Var> = GHashMap::new(); // final → original
     if !(options.preprocess.no_abc
         || matches!(options.engine, options::Engine::IC3) && options.ic3.inn)
     {
-        let mut remap_retain = GHashSet::new();
+        let mut remap_retain: GHashSet<Var> = GHashSet::new();
         remap_retain.insert(Var::CONST);
         for i in aig.inputs.iter() {
             remap_retain.insert((*i).into());
@@ -140,14 +161,13 @@ pub fn aig_preprocess(
         for (x, y) in remap2 {
             if let Some(z) = remap.get(&y) {
                 remap_final.insert(x, *z);
-                remap_rev.insert(*z, x);
             }
         }
 
         remap = remap_final;
     }
     aig.constraints.retain(|e| !e.is_constant(true));
-    (aig, remap, remap_rev)
+    (aig, remap)
 }
 
 pub struct AigFrontend {
@@ -207,10 +227,10 @@ impl AigFrontend {
                 aig.compress_property();
             }
         }
-        let (aig, rst, oldtonew) = aig_preprocess(&aig, opt);
+        let (aig, rst) = aig_preprocess(&aig, opt);
         let mut ts = Transys::from_aig(&aig, true);
         ts.rst = rst;
-        ts.oldtonew = oldtonew;
+        // ts.oldtonew = oldtonew;
         if opt.l2s {
             ts = ts.l2s();
         }

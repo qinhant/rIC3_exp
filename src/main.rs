@@ -19,6 +19,7 @@ use std::{
     ptr,
 };
 use secIC3::RelationData;
+use log::trace;
 
 fn main() {
     if env::var("RUST_LOG").is_err() {
@@ -36,6 +37,20 @@ fn main() {
         portfolio_main(options);
         unreachable!();
     }
+
+    if let Some(ref relation_file) = options.relation_file {
+        let (input_count, latch_count) = secIC3::get_input_latch_num(options.model.to_str().unwrap());
+        RelationData::init_relation_data(relation_file, input_count, latch_count);
+        // let data = RelationData::get_relation_data();
+        // println!(
+        //     "✅ RelationData initialized: {} rows loaded",
+        //     data.entries.len()
+        // );
+        // for (i, entry) in data.entries.iter().take(5).enumerate() {
+        //     println!("Row {}: {:?}", i, entry);
+        // }
+    }
+
     let mut aig = match options.model.extension() {
         Some(ext) if (ext == "btor") | (ext == "btor2") => panic!(
             "Error: rIC3 currently does not support parsing BTOR2 files. Please use btor2aiger (https://github.com/hwmcc/btor2tools) to first convert them to AIG format."
@@ -44,9 +59,7 @@ fn main() {
         _ => panic!("Error: unsupported file format"),
     };
     let ts = aig.ts();
-    // for (k, v) in ts.rst.iter() {
-    //     println!("new to origin: {:?} -> {:?}", k,  v);
-    // }
+
 
     if options.preprocess.sec {
         panic!("Error: sec not support");
@@ -61,25 +74,11 @@ fn main() {
         ));
     }
 
-    if let Some(ref relation_file) = options.relation_file {
-        RelationData::init_relation_data(relation_file, var2name::get_inputcount(), var2name::get_latchcount());
-        let data = RelationData::get_relation_data();
-        println!(
-            "✅ RelationData initialized: {} rows loaded",
-            data.entries.len()
-        );
-        for (i, entry) in data.entries.iter().take(5).enumerate() {
-            println!("Row {}: {:?}", i, entry);
-        }
+    trace!("Number of refined inputs: {}, number of refined latchs: {}", ts.input.len(), ts.latch.len());
+    for (var1, var2) in ts.rst.iter() {
+        trace!("New to Origin: {:?} -> {:?} {}", var1, var2, var2);
     }
 
-    // for (k, v) in ts.rst.iter() {
-    //     println!("new to origin: {:?} -> {:?} {:?}", k, v, var2name::var2info(k.0 as usize));
-    // }
-    // for (k, v) in ts.oldtonew.iter() {
-    //     println!("origin to new: {:?} {:?} -> {:?}", k, var2name::var2name(v.0 as usize), v);
-    // }
-    
     let mut engine: Box<dyn Engine> = match options.engine {
         options::Engine::IC3 => Box::new(IC3::new(options.clone(), ts, vec![])),
         options::Engine::Kind => Box::new(Kind::new(options.clone(), ts)),

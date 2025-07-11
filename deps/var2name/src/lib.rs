@@ -6,8 +6,7 @@ use std::fs::File;
 use std::io::BufRead;
 use std::sync::RwLock;
 
-#[derive(Clone)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VarType {
     Input,
     Latch,

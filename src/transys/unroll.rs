@@ -196,7 +196,6 @@ impl TransysUnroll<Transys> {
             fairness: Default::default(),
             rel,
             rst: self.ts.rst.clone(),
-            oldtonew:  self.ts.rst.iter().map(|(k, v)| (*v, *k)).collect(),
         }
     }
 
@@ -238,7 +237,6 @@ impl TransysUnroll<Transys> {
             fairness: Default::default(),
             rel,
             rst: self.ts.rst.clone(),
-            oldtonew:  self.ts.rst.iter().map(|(k, v)| (*v, *k)).collect(),
         }
     }
 }

@@ -2,9 +2,10 @@ use super::{IC3, proofoblig::ProofObligation};
 use crate::{options, transys::{unroll::TransysUnroll, Transys, TransysCtx, TransysIf}};
 use cadical::Solver;
 use log::{error, info};
-use logic_form::{Lemma, LitVec};
+use logic_form::{Lemma, LitVec, Var};
 use satif::Satif;
 use std::ops::Deref;
+use log::trace;
 
 pub fn verify_invariant(ts: &TransysCtx, invariants: &[Lemma], options: &options::Options) -> bool {
     let mut solver = Solver::new();
@@ -15,10 +16,32 @@ pub fn verify_invariant(ts: &TransysCtx, invariants: &[Lemma], options: &options
             return false;
         }
     }
+
+    // Add the predicate semantics, i.e. !neq -> equivalence
+    let relation = secIC3::RelationData::get_relation_data();
+
+    for var in ts.latchs.iter() {
+        if let Some(equiv_pred) = relation.get_equiv_predicate_new(var.0 as usize) {
+            let predicate_var = Var::new(equiv_pred as usize);
+            if relation.get_sym_var_new(var.0 as usize) == None {
+                trace!("No symmetric variable for var: {} {}", var.0, var);
+                continue;
+            }
+            let sym_var = Var::new(relation.get_sym_var_new(var.0 as usize).unwrap() as usize);
+
+            // add constraint to the solver
+            let mut constraint = LitVec::new_with(3);
+                        constraint.push(var.lit());
+                        constraint.push(!sym_var.lit());
+                        constraint.push(!predicate_var.lit());
+                        solver.add_clause(&!&constraint);
+        }
+    }
+
     for lemma in invariants {
         solver.add_clause(&!lemma.deref());
         if options.symmetry {
-            let sym_lemma = Lemma::new(lemma.symmetric());
+            let sym_lemma = Lemma::new(secIC3::symmetric_cube(lemma.cube()));
             solver.add_clause(&!sym_lemma.deref());
         }
     }
@@ -35,9 +58,9 @@ pub fn verify_invariant(ts: &TransysCtx, invariants: &[Lemma], options: &options
 
 impl IC3 {
     pub fn verify(&mut self) {
-        if !self.options.certify {
-            return;
-        }
+        // if !self.options.certify {
+        //     return;
+        // }
         let invariants = self.frame.invariant();
         if !verify_invariant(&self.ts, &invariants, &self.options) {
             error!("invariant varify failed");
@@ -47,6 +70,10 @@ impl IC3 {
             "inductive invariant verified with {} lemmas!",
             invariants.len()
         );
+        println!("----------Final Inductive Invariant----------");
+        for lemma in invariants.iter() {
+            println!("inducive invariant: {}", lemma);
+        }
     }
 
     fn check_witness_with_constrain<S: Satif + ?Sized>(

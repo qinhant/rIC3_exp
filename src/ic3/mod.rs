@@ -6,7 +6,7 @@ use crate::{
 };
 use activity::Activity;
 use frame::{Frame, Frames};
-use giputils::{grc::Grc, hash::GHashMap};
+use giputils::{grc::Grc, hash::{GHashMap, GHashSet}};
 use log::{debug, info};
 use logic_form::{Lemma, LitVec, Var};
 use mic::{DropVarParameter, MicType};
@@ -16,6 +16,9 @@ use satif::Satif;
 use statistic::Statistic;
 use std::{iter::once, time::Instant};
 use std::collections::BTreeMap;
+use secIC3::RelationData;
+use log::trace;
+
 
 mod activity;
 mod frame;
@@ -62,6 +65,31 @@ impl IC3 {
         for v in self.auxiliary_var.iter() {
             solver.add_domain(*v, true);
         }
+
+        // Add the predicate semantics, i.e. !neq -> equivalence
+        let relation = RelationData::get_relation_data();
+
+        for var in self.ts.latchs.iter() {
+            if let Some(equiv_pred) = relation.get_equiv_predicate_new(var.0 as usize) {
+                let predicate_var = Var::new(equiv_pred as usize);
+                if relation.get_sym_var_new(var.0 as usize) == None {
+                    trace!("No symmetric variable for var: {} {}", var.0, var);
+                    continue;
+                }
+                let sym_var = Var::new(relation.get_sym_var_new(var.0 as usize).unwrap() as usize);
+
+                // add constraint to the solver
+                let mut constraint = LitVec::new_with(3);
+                            constraint.push(var.lit());
+                            constraint.push(!sym_var.lit());
+                            constraint.push(!predicate_var.lit());
+                            solver.add_lemma(&!&constraint);
+                            if !self.options.ic3.no_pred_prop {
+                                self.bad_solver.add_clause(&!&constraint);
+                            }
+            }
+        }
+
         self.solvers.push(solver);
         self.frame.push(Frame::new());
         if self.level() == 0 {
@@ -85,6 +113,9 @@ impl IC3 {
                 self.add_lemma(1, !cls.clone(), true, None);
             }
         }
+
+        
+        
     }
 
     fn push_lemma(&mut self, frame: usize, mut cube: LitVec) -> (usize, LitVec) {
@@ -100,6 +131,81 @@ impl IC3 {
         (self.level() + 1, cube)
     }
 
+    fn equiv_predicate_total_replacement(&mut self, frame: usize, cube: &LitVec) -> Option<LitVec> {
+        let relation = RelationData::get_relation_data();
+        let mut predicate_cube = LitVec::new();
+        let mut seen = GHashSet::new(); // Track variables already handled
+        let mut added = GHashSet::new(); // Track vars added to predicate_cube
+
+        let mut changed = false;
+        for lit in cube.iter() {
+            let var = lit.var();
+            let polarity = lit.polarity();
+
+            // Skip if already processed
+            if seen.contains(&var) {
+                continue;
+            }
+            seen.insert(var);
+
+            // Check symmetric
+            if relation.get_sym_var_new(var.0 as usize) == None {
+                trace!("No symmetric variable for var: {} {}", var.0, var);
+                continue; // Skip if no symmetric variable
+
+            }
+            let sym_var = Var::new(relation.get_sym_var_new(var.0 as usize).unwrap()); 
+            seen.insert(sym_var);
+            
+            let temp_lit = sym_var.lit();
+            let sym_lit = if cube.contains(&temp_lit) {
+                Some(temp_lit)
+            } else if cube.contains(&!temp_lit) {
+                Some(!temp_lit)
+            } else {
+                None
+            }; 
+            // Check if symmetric literal is also in litvec
+            if sym_lit.is_some(){
+                trace!("Found symmetric variable: {} {}", var.0, var);
+                let sym_lit = sym_lit.unwrap();
+                // Opposite polarity?
+                if polarity != sym_lit.polarity() {
+                    trace!("Find opposite polarity for symmetric variable: {} {}", var.0, var);
+                    // Replace with predicate variable
+                    if relation.get_equiv_predicate_new(var.0 as usize) == None{
+                        trace!("No equivalence predicate found for var: {} {}", var.0, var);
+                        continue; // Skip if no equivalence predicate
+                    }
+                    if let Some(pred_var) = relation.get_equiv_predicate_new(var.0 as usize).map(Var::new) {
+                        if added.insert(pred_var) {
+                            predicate_cube.push(pred_var.lit());
+                            changed = true;
+                        }
+                    }
+                    continue; // Skip adding original pair
+                }
+            }
+
+            // Add original literal if not already added
+            if added.insert(var) {
+                predicate_cube.push(*lit);
+            }
+        }
+
+        if changed{
+            let original_lemma = Lemma::new(cube.clone());
+            let predicate_lemma = Lemma::new(predicate_cube.clone());
+            trace!("trying equivalence predicate replacement frame:{frame}, {original_lemma} -> {predicate_lemma}");
+            if self.blocked_with_ordered(frame, &predicate_cube, false, true){
+                trace!("Successful Replacement");
+                return Some(predicate_cube);
+            }
+        }
+
+        None
+    }
+
     fn generalize(&mut self, mut po: ProofObligation, mic_type: MicType) -> bool {
         if self.options.ic3.inn && self.ts.cube_subsume_init(&po.lemma) {
             po.frame += 1;
@@ -108,6 +214,15 @@ impl IC3 {
         }
         let mut mic = self.solvers[po.frame - 1].inductive_core();
         mic = self.mic(po.frame, mic, &[], mic_type);
+
+        if self.options.equiv_predicate {
+            if !self.options.iterative_predicate_replacement {
+                if let Some(result) = self.equiv_predicate_total_replacement(po.frame, &mic) {
+                    mic = result;
+                }
+            }
+        }
+        
         let (frame, mic) = self.push_lemma(po.frame, mic);
         self.statistic.avg_po_cube_len += po.lemma.len();
         po.push_to(frame);

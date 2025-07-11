@@ -70,6 +70,6 @@ impl Transys {
             res.rst.insert(encode_map[f], encode_map[t]);
         }
         *self = res;
-        self.oldtonew = self.rst.iter().map(|(k, v)| (*v, *k)).collect();
+        // self.oldtonew = self.rst.iter().map(|(k, v)| (*v, *k)).collect();
     }
 }
