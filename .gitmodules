@@ -22,3 +22,6 @@
 [submodule "deps/btor-rs"]
 	path = deps/btor-rs
 	url = git@github.com:gipsyh/btor-rs.git
+[submodule "deps/logicrs"]
+	path = deps/logicrs
+	url = https://github.com/gipsyh/logicrs
