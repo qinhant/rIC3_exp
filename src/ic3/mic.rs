@@ -1,9 +1,11 @@
 use super::IC3;
 use crate::{options::Options, transys::TransysIf};
-use giputils::hash::GHashSet;
-use logic_form::{Lemma, Lit, LitVec};
+use giputils::{hash::{GHashMap, GHashSet}};
+use logic_form::{Lemma, Lit, LitVec, Var};
 use satif::Satif;
 use std::time::Instant;
+use secIC3::RelationData;
+use log::trace;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DropVarParameter {
@@ -31,6 +33,7 @@ impl DropVarParameter {
 pub enum MicType {
     NoMic,
     DropVar(DropVarParameter),
+    EquivPred,
 }
 
 impl MicType {
@@ -260,6 +263,69 @@ impl IC3 {
         cube
     }
 
+    /// Perform MIC by replacing variables with their equivalence predicates
+    fn mic_by_equiv_predicate_replacement(
+        &mut self, 
+        frame: usize, 
+        mut cube: LitVec
+    ) -> LitVec {
+        let relation = RelationData::get_relation_data();
+        let mut seen_predicates = GHashSet::new();
+        let mut pred_to_lits: GHashMap<usize, Vec<Lit>> = GHashMap::default();
+
+        // Step 1: Group literals in the cube by their equivalence predicate (if any)
+        for &lit in &cube {
+            if let Some(pred_id) = relation.get_equiv_predicate_new(lit.var().0 as usize) {
+                pred_to_lits.entry(pred_id).or_default().push(lit);
+            }
+        }
+
+        // Step 2: Try one replacement per predicate group
+        for (pred_id, lits) in pred_to_lits.into_iter() {
+            if seen_predicates.contains(&pred_id) {
+                continue;
+            }
+            seen_predicates.insert(pred_id);
+
+            let mut to_remove = GHashSet::new();
+            let mut matched = false;
+
+            // Step 2a: Pairwise polarity check between symmetric bits
+            for &lit in &lits {
+                let var = lit.var();
+                if let Some(sym_id) = relation.get_sym_var_new(var.0 as usize) {
+                    let sym_var = Var::new(sym_id);
+                    let sym_lit = sym_var.lit();
+
+                    // Determine the polarity of the symmetric literal to match
+                    let target_lit = if lit.polarity() { !sym_lit } else { sym_lit };
+
+                    if cube.contains(&target_lit) {
+                        matched = true;
+                        to_remove.insert(var);
+                        to_remove.insert(sym_var);
+                    }
+                }
+            }
+
+            // Step 3: Attempt generalization if at least one pair matched
+            if matched {
+                let pred_lit = Var::new(pred_id).lit();
+                let mut new_cube: LitVec = cube.iter()
+                    .filter(|l| !to_remove.contains(&l.var()))
+                    .cloned()
+                    .collect();
+                new_cube.push(pred_lit);
+
+                if self.blocked_with_ordered(frame, &new_cube, false, true) {
+                    trace!("Successful equiv predicate replacement: {} → {:?}", pred_lit, new_cube);
+                    cube = new_cube;
+                }
+            }
+        }
+        cube
+    }
+
     pub fn mic(
         &mut self,
         frame: usize,
@@ -270,6 +336,7 @@ impl IC3 {
         match mic_type {
             MicType::NoMic => cube,
             MicType::DropVar(parameter) => self.mic_by_drop_var(frame, cube, constraint, parameter),
+            MicType::EquivPred => self.mic_by_equiv_predicate_replacement(frame, cube),
         }
     }
 }

@@ -220,6 +220,8 @@ impl IC3 {
                 if let Some(result) = self.equiv_predicate_total_replacement(po.frame, &mic) {
                     mic = result;
                 }
+            } else {
+                mic = self.mic(po.frame, mic, &[], MicType::EquivPred);
             }
         }
         
