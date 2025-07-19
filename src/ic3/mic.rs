@@ -5,7 +5,9 @@ use logic_form::{Lemma, Lit, LitVec, Var};
 use satif::Satif;
 use std::time::Instant;
 use secIC3::RelationData;
+use std::collections::VecDeque;
 use log::trace;
+use itertools::Itertools;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DropVarParameter {
@@ -33,7 +35,8 @@ impl DropVarParameter {
 pub enum MicType {
     NoMic,
     DropVar(DropVarParameter),
-    EquivPred,
+    EquivPredIterative,
+    EquivPredExhaustive,
 }
 
 impl MicType {
@@ -264,7 +267,7 @@ impl IC3 {
     }
 
     /// Perform MIC by replacing variables with their equivalence predicates
-    fn mic_by_equiv_predicate_replacement(
+    fn mic_by_equiv_predicate_iterative_replacement(
         &mut self, 
         frame: usize, 
         mut cube: LitVec
@@ -319,10 +322,95 @@ impl IC3 {
 
                 if self.blocked_with_ordered(frame, &new_cube, false, true) {
                     trace!("Successful equiv predicate replacement: {} → {:?}", pred_lit, new_cube);
-                    cube = new_cube;
+                    cube = self.solvers[frame - 1].inductive_core();
                 }
             }
         }
+        cube
+    }
+
+    /// Perform MIC by replacing variables with their equivalence predicates, exhaustively try every replacement
+    fn mic_by_equiv_predicate_exhaustive_replacement(
+        &mut self, 
+        frame: usize, 
+        mut cube: LitVec
+    )-> LitVec {
+        let relation = RelationData::get_relation_data();
+        let mut pred_to_lits: GHashMap<usize, Vec<Lit>> = GHashMap::default();
+
+        // Step 1: Group literals in the cube by their equivalence predicate (if any)
+        for &lit in &cube {
+            if let Some(pred_id) = relation.get_equiv_predicate_new(lit.var().0 as usize) {
+                let var = lit.var();
+                if let Some(sym_id) = relation.get_sym_var_new(var.0 as usize){
+                    let sym_var = Var::new(sym_id);
+                    let sym_lit = sym_var.lit();
+                    // Determine the polarity of the symmetric literal to match
+                    let target_lit = if lit.polarity() { !sym_lit } else { sym_lit };
+
+                    if cube.contains(&target_lit){
+                        pred_to_lits.entry(pred_id).or_default().push(lit);
+                    }
+                }
+            }
+        }
+        // Sort by the number of literals corresponding to every predicate
+        // So the resultant cube will be 
+        pred_to_lits = pred_to_lits.into_iter()
+        .sorted_by_key(|(_, lits)| lits.len())
+        .collect();
+
+        let num_preds = pred_to_lits.len();
+        let mut replacement_queue: VecDeque<Vec<bool>> = VecDeque::new();
+        replacement_queue.push_back(vec! [true; num_preds]);
+        let mut replacement_tried: GHashSet<Vec<bool>> = GHashSet::new();
+
+
+        while let Some(replacement) = replacement_queue.pop_front() {
+            if replacement.iter().all(|&b| !b) {
+                continue;
+            }
+            let mut new_cube: LitVec = cube.clone();
+
+            // Apply the replacement
+            for (i, (pred_id, lits)) in pred_to_lits.iter().enumerate() {
+                if replacement[i] {
+                    // Remove all lits in this predicate group
+                    new_cube.retain(|l| !lits.contains(l));
+                    
+                    // Add the predicate literal
+                    let pred_lit = Var::new(*pred_id).lit();
+                    new_cube.push(pred_lit);
+                }
+            }
+
+            let original_lemma = Lemma::new(cube.clone());
+            let predicate_lemma = Lemma::new(new_cube.clone());
+            trace!("trying equivalence predicate replacement frame:{frame}, {original_lemma} -> {predicate_lemma}");
+            
+            if self.blocked_with_ordered(frame, &new_cube, false, true) {
+                trace!("Successful Replacement");
+                cube = self.solvers[frame - 1].inductive_core();
+                break;
+            }
+            else {
+                for (i, &val) in replacement.iter().enumerate() {
+                    if val {
+                        let mut new_replacement = replacement.clone();
+                        new_replacement[i] = false;
+                        if !replacement_tried.contains(&new_replacement){
+                            replacement_queue.push_back(new_replacement);
+                        }
+                    }
+                }
+            }
+
+            replacement_tried.insert(replacement);
+
+
+        }
+
+
         cube
     }
 
@@ -336,7 +424,8 @@ impl IC3 {
         match mic_type {
             MicType::NoMic => cube,
             MicType::DropVar(parameter) => self.mic_by_drop_var(frame, cube, constraint, parameter),
-            MicType::EquivPred => self.mic_by_equiv_predicate_replacement(frame, cube),
+            MicType::EquivPredIterative => self.mic_by_equiv_predicate_iterative_replacement(frame, cube),
+            MicType::EquivPredExhaustive => self.mic_by_equiv_predicate_exhaustive_replacement(frame, cube),
         }
     }
 }

@@ -199,7 +199,7 @@ impl IC3 {
             trace!("trying equivalence predicate replacement frame:{frame}, {original_lemma} -> {predicate_lemma}");
             if self.blocked_with_ordered(frame, &predicate_cube, false, true){
                 trace!("Successful Replacement");
-                return Some(predicate_cube);
+                return Some(self.solvers[frame - 1].inductive_core());
             }
         }
 
@@ -216,12 +216,15 @@ impl IC3 {
         mic = self.mic(po.frame, mic, &[], mic_type);
 
         if self.options.equiv_predicate {
-            if !self.options.iterative_predicate_replacement {
+            if !self.options.iterative_predicate_replacement && !self.options.exhaustive_predicate_replacement{
                 if let Some(result) = self.equiv_predicate_total_replacement(po.frame, &mic) {
-                    mic = result;
+                mic = result;
                 }
-            } else {
-                mic = self.mic(po.frame, mic, &[], MicType::EquivPred);
+            } else if self.options.iterative_predicate_replacement {
+                mic = self.mic(po.frame, mic, &[], MicType::EquivPredIterative);
+            }
+            else if self.options.exhaustive_predicate_replacement {
+                mic = self.mic(po.frame, mic, &[], MicType::EquivPredExhaustive);
             }
         }
         

@@ -47,6 +47,10 @@ pub struct Options {
     #[arg(long, default_value_t = false)]
     pub iterative_predicate_replacement: bool,
 
+    /// default replacement algorithm is total replacement
+    #[arg(long, default_value_t = false)]
+    pub exhaustive_predicate_replacement: bool,
+
     /// certify with certifaiger
     #[arg(long, default_value_t = false)]
     pub certify: bool,
