@@ -18,8 +18,36 @@ pub struct Config {
     /// for btor model, the file name should be suffixed with .btor or .btor2
     pub model: PathBuf,
 
+    /// model map file for aiger format
+    #[arg(short, long)]
+    pub model_map: Option<String>,
+
     /// certificate path
     pub certificate: Option<PathBuf>,
+
+    /// Relation file path
+    #[arg(short, long)]
+    pub relation_file: Option<PathBuf>,
+
+    /// use symmetric cube 
+    #[arg(long, default_value_t = false)]
+    pub symmetry: bool,
+
+    /// use equivalence predicate
+    #[arg(long, default_value_t = false)]
+    pub equiv_predicate: bool,
+
+    /// use eqinit predicate
+    #[arg(long, default_value_t = false)]
+    pub eqinit_predicate: bool,
+
+    /// default replacement algorithm is total replacement
+    #[arg(long, default_value_t = false)]
+    pub iterative_predicate_replacement: bool,
+
+    /// default replacement algorithm is total replacement
+    #[arg(long, default_value_t = false)]
+    pub exhaustive_predicate_replacement: bool,
 
     /// certify with certifaiger
     #[arg(long, default_value_t = false)]

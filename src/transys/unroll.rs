@@ -194,6 +194,7 @@ impl TransysUnroll<Transys> {
             constraint,
             justice: Default::default(),
             rel,
+            rst: self.ts.rst.clone(),
         }
     }
 
@@ -233,6 +234,7 @@ impl TransysUnroll<Transys> {
             constraint: self.ts.constraint.clone(),
             justice: Default::default(),
             rel,
+            rst: self.ts.rst.clone(),
         }
     }
 }

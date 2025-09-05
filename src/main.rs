@@ -14,11 +14,14 @@ use rIC3::{
     transys::TransysIf,
 };
 use std::{
+    collections::BTreeMap,
     env, error, fs,
     mem::{self, transmute},
     process::exit,
     ptr,
 };
+use secIC3::RelationData;
+use log::trace;
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     if env::var("RUST_LOG").is_err() {
@@ -36,6 +39,12 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         portfolio_main(cfg);
         unreachable!();
     }
+
+    if let Some(ref relation_file) = cfg.relation_file {
+        let (input_count, latch_count) = secIC3::get_input_latch_num(cfg.model.to_str().unwrap());
+        RelationData::init_relation_data(relation_file, input_count, latch_count);
+    }
+
     let mut frontend: Box<dyn Frontend> = match cfg.model.extension() {
         Some(ext) if (ext == "aig") | (ext == "aag") => Box::new(AigFrontend::new(&cfg)),
         Some(ext) if (ext == "btor") | (ext == "btor2") => Box::new(BtorFrontend::new(&cfg)),
@@ -44,10 +53,25 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             exit(1);
         }
     };
+
     let ts = frontend.ts();
     info!("origin ts has {}", ts.statistic());
     if cfg.preproc.sec {
         panic!("Error: sec not support");
+    }
+    if let Some(ref map_file) = cfg.model_map {
+        var2name::init_var2name(map_file, cfg.model.to_str().unwrap());
+        var2name::init_var2name_refine_inv(BTreeMap::from_iter(
+            ts.rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
+        ),
+        BTreeMap::from_iter(
+            ts.rst.iter().map(|(k, v)| (v.0 as usize, k.0 as usize)),
+        ));
+    }
+
+    trace!("Number of refined inputs: {}, number of refined latchs: {}", ts.input.len(), ts.latch.len());
+    for (var1, var2) in ts.rst.iter() {
+        trace!("New to Origin: {:?} -> {:?} {}", var1, var2, var2);
     }
     let mut engine: Box<dyn Engine> = match cfg.engine {
         config::Engine::IC3 => Box::new(IC3::new(cfg.clone(), ts, vec![])),

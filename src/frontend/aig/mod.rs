@@ -97,6 +97,7 @@ impl Transys {
             constraint,
             justice,
             rel,
+            rst: VarVMap::new(),
         }
     }
 }
@@ -169,7 +170,8 @@ impl AigFrontend {
         }
         let ots = Transys::from_aig(&aig, true);
         let (aig, rst) = aig_preprocess(&aig);
-        let ts = Transys::from_aig(&aig, true);
+        let mut ts = Transys::from_aig(&aig, true);
+        ts.rst = rst.clone();
         Self { oaig, ots, ts, rst }
     }
 

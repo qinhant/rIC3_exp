@@ -121,6 +121,7 @@ pub struct Transys {
     pub constraint: LitVec,
     pub justice: LitVec,
     pub rel: DagCnf,
+    pub rst: VarVMap,
 }
 
 impl TransysIf for Transys {

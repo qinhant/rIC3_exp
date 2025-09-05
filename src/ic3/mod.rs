@@ -14,7 +14,8 @@ use mic::{DropVarParameter, MicType};
 use proofoblig::{ProofObligation, ProofObligationQueue};
 use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use statistic::Statistic;
-use std::time::Instant;
+use std::{collections::BTreeMap, time::Instant};
+use var2name;
 
 mod activity;
 mod aux;
@@ -416,6 +417,21 @@ impl IC3 {
             ts.simplify(&mut rst);
             let frts = FrTs::new(ts, rng.random(), rst, vec![]);
             (ts, rst) = frts.fr();
+
+            if cfg.relation_file.is_some() {
+                let new_refine_inv = BTreeMap::from_iter(
+                    rst.iter().map(|(k, v)| (k.0 as usize, v.0 as usize)),
+                );
+                var2name::update_var2name_refine_map(&new_refine_inv);
+                for (new, old) in rst.iter() {
+                    if let Some(origin_id) = var2name::get_origin_id((*new).0 as usize){
+                        trace!("Updated InvRefine Map: {} {:?} -> {}", (*new).0, var2name::var2name((*new).0 as usize), origin_id);
+                    }
+                    else {
+                        panic!("Updated InvRefine Map: {} {:?} -> None", (*new).0, *new);
+                    }
+                }
+            }
         }
         info!("simplified ts has {}", ts.statistic());
         let mut uts = TransysUnroll::new(&ts);

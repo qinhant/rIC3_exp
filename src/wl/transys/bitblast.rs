@@ -1,7 +1,7 @@
 use super::WlTransys;
 use crate::transys::Transys;
 use giputils::hash::GHashMap;
-use logicrs::{DagCnf, LitVec};
+use logicrs::{DagCnf, LitVec, VarVMap};
 use logicrs::{
     Var,
     fol::{
@@ -126,6 +126,7 @@ impl WlTransys {
                 next,
                 init,
                 justice,
+                rst: VarVMap::new(),
             },
             rst,
         )

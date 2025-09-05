@@ -1,0 +1,13 @@
+[package]
+name = "secIC3"
+version = "0.0.0"
+license = "MIT"
+description = ""
+edition = "2024"
+rust-version = "1.89"
+
+[dependencies]
+once_cell = "1.21.3"
+log = "0.4.27"
+logicrs = { path = "../logicrs", version = "0.5.2" }
+var2name = { path = "../var2name" }

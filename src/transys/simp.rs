@@ -1,6 +1,8 @@
 use super::{Transys, TransysIf};
 use giputils::hash::GHashSet;
 use logicrs::{Lit, Var, VarVMap};
+use var2name;
+use secIC3::RelationData;
 
 impl Transys {
     pub fn coi_refine(&mut self, rst: &mut VarVMap) {
@@ -48,6 +50,42 @@ impl Transys {
                 }
             }
         }
+
+        // retain the predicates of marked latches
+        let relation = RelationData::get_relation_data();
+        for v in self.latch.iter() {
+            let old_v = rst[*v];
+            if let Some(predicate) = relation.get_equiv_predicate_new(old_v.0 as usize) {
+                if !mark.contains(v) {
+                    continue;
+                }
+                queue.push(Var::new(predicate as usize));
+            }
+        }
+
+        while let Some(v) = queue.pop() {
+            if let Some(n) = self.next.get(&v) {
+                let nv = n.var();
+                if !mark.contains(&nv) {
+                    mark.insert(nv);
+                    queue.push(nv);
+                }
+            }
+            if let Some(i) = self.init.get(&v) {
+                let iv = i.var();
+                if !mark.contains(&iv) {
+                    mark.insert(iv);
+                    queue.push(iv);
+                }
+            }
+            for &d in self.rel.dep(v).iter() {
+                if !mark.contains(&d) {
+                    mark.insert(d);
+                    queue.push(d);
+                }
+            }
+        }
+
         for v in self.input.iter().chain(self.latch.iter()) {
             if !mark.contains(v) {
                 self.init.remove(v);
@@ -56,6 +94,8 @@ impl Transys {
         }
         self.input.retain(|i| mark.contains(i));
         self.latch.retain(|i| mark.contains(i));
+
+
         for v in Var::CONST + 1..=self.max_var() {
             if !mark.contains(&v) {
                 self.rel.del_rel(v);
