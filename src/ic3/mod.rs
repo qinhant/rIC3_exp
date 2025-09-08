@@ -425,10 +425,10 @@ impl IC3 {
                 var2name::update_var2name_refine_map(&new_refine_inv);
                 for (new, old) in rst.iter() {
                     if let Some(origin_id) = var2name::get_origin_id((*new).0 as usize){
-                        trace!("Updated InvRefine Map: {} {:?} -> {}", (*new).0, var2name::var2name((*new).0 as usize), origin_id);
+                        trace!("Final Updated InvRefine Map: {} {:?} -> {}", (*new).0, new, origin_id);
                     }
                     else {
-                        panic!("Updated InvRefine Map: {} {:?} -> None", (*new).0, *new);
+                        panic!("Final Updated InvRefine Map: {} {:?} -> None", (*new).0, new);
                     }
                 }
             }

@@ -1,6 +1,7 @@
 use super::{Transys, TransysIf};
 use giputils::hash::GHashSet;
 use logicrs::{Lit, Var, VarVMap};
+use std::collections::BTreeMap;
 use var2name;
 use secIC3::RelationData;
 
@@ -54,12 +55,15 @@ impl Transys {
         // retain the predicates of marked latches
         let relation = RelationData::get_relation_data();
         for v in self.latch.iter() {
-            let old_v = rst[*v];
-            if let Some(predicate) = relation.get_equiv_predicate_new(old_v.0 as usize) {
-                if !mark.contains(v) {
+             if !mark.contains(v) {
                     continue;
                 }
-                queue.push(Var::new(predicate as usize));
+            if let Some(predicate) = relation.get_equiv_predicate_new((*v).0 as usize) {
+                let predicate_var = Var::new(predicate);
+                if !mark.contains(&predicate_var) {
+                    mark.insert(predicate_var);
+                    queue.push(predicate_var);
+                }
             }
         }
 
