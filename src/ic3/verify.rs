@@ -2,9 +2,12 @@ use super::{IC3, proofoblig::ProofObligation};
 use crate::transys::{Transys, TransysCtx, TransysIf, unroll::TransysUnroll};
 use cadical::Solver;
 use log::{error, info};
-use logicrs::{LitVec, satif::Satif};
+use logicrs::{satif::Satif, LitOrdVec, LitVec, Var};
+use log::trace;
+use secIC3;
+use crate::Config;
 
-pub fn verify_invariant(ts: &TransysCtx, invariants: &[LitVec]) -> bool {
+pub fn verify_invariant(ts: &TransysCtx, invariants: &[LitVec], cfg: &Config) -> bool {
     let mut solver = Solver::new();
     ts.load_trans(&mut solver, true);
     ts.load_init(&mut solver);
@@ -13,10 +16,35 @@ pub fn verify_invariant(ts: &TransysCtx, invariants: &[LitVec]) -> bool {
             return false;
         }
     }
-    let mut solver = Solver::new();
-    ts.load_trans(&mut solver, true);
+
+
+    let relation = secIC3::RelationData::get_relation_data();
+
+    // Add the predicate semantics, i.e. !neq -> equivalence
+    for var in ts.latch.iter() {
+        if let Some(equiv_pred) = relation.get_equiv_predicate_new(var.0 as usize) {
+            let predicate_var = Var::new(equiv_pred as usize);
+            if relation.get_sym_var_new(var.0 as usize) == None {
+                trace!("No symmetric variable for var: {} {}", var.0, var);
+                continue;
+            }
+            let sym_var = Var::new(relation.get_sym_var_new(var.0 as usize).unwrap() as usize);
+
+            // add constraint to the solver
+            let mut constraint = LitVec::new_with(3);
+                        constraint.push(var.lit());
+                        constraint.push(!sym_var.lit());
+                        constraint.push(!predicate_var.lit());
+                        solver.add_clause(&!&constraint);
+        }
+    }
+
     for lemma in invariants {
         solver.add_clause(&!lemma);
+        if cfg.symmetry {
+            let sym_lemma = secIC3::symmetric_cube(lemma);
+            solver.add_clause(&!sym_lemma);
+        }
     }
     if solver.solve(&ts.bad.cube()) {
         return false;
@@ -31,18 +59,22 @@ pub fn verify_invariant(ts: &TransysCtx, invariants: &[LitVec]) -> bool {
 
 impl IC3 {
     pub(super) fn verify(&mut self) {
-        if !self.cfg.certify {
-            return;
-        }
+        // if !self.cfg.certify {
+        //     return;
+        // }
         let invariants = self.frame.invariant();
-        if !verify_invariant(&self.tsctx, &invariants) {
-            error!("invariant varify failed");
+        if !verify_invariant(&self.tsctx, &invariants, &self.cfg) {
+            error!("invariant verify failed");
             panic!();
         }
         info!(
             "inductive invariant verified with {} lemmas!",
             invariants.len()
         );
+        println!("----------Final Inductive Invariant----------");
+        for lemma in invariants.iter() {
+            println!("inductive invariant: {}", lemma);
+        }
     }
 
     fn check_witness_with_constrain<S: Satif + ?Sized>(

@@ -7,7 +7,7 @@ use crate::{
 };
 use activity::Activity;
 use frame::{Frame, Frames};
-use giputils::{grc::Grc, hash::GHashMap, logger::IntervalLogger};
+use giputils::{grc::Grc, hash::{GHashMap, GHashSet}, logger::IntervalLogger};
 use log::{Level, debug, info, trace};
 use logicrs::{Lit, LitOrdVec, LitVec, Var, VarVMap, satif::Satif};
 use mic::{DropVarParameter, MicType};
@@ -16,6 +16,8 @@ use rand::{Rng, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use statistic::Statistic;
 use std::{collections::BTreeMap, time::Instant};
 use var2name;
+use secIC3::RelationData;
+use std::collections::VecDeque;
 
 mod activity;
 mod aux;
@@ -74,6 +76,31 @@ impl IC3 {
         for v in self.auxiliary_var.iter() {
             solver.add_domain(*v, true);
         }
+
+        // Add the predicate semantics, i.e. !neq -> equivalence
+        let relation = RelationData::get_relation_data();
+
+        for var in self.ts.latch.iter() {
+            if let Some(equiv_pred) = relation.get_equiv_predicate_new(var.0 as usize) {
+                let predicate_var = Var::new(equiv_pred as usize);
+                if relation.get_sym_var_new(var.0 as usize) == None {
+                    trace!("No symmetric variable for var: {} {}", var.0, var);
+                    continue;
+                }
+                let sym_var = Var::new(relation.get_sym_var_new(var.0 as usize).unwrap() as usize);
+
+                // add constraint to the solver
+                let mut constraint = LitVec::new_with(3);
+                            constraint.push(var.lit());
+                            constraint.push(!sym_var.lit());
+                            constraint.push(!predicate_var.lit());
+                            solver.add_clause(&!&constraint);
+                            if !self.cfg.ic3.no_pred_prop {
+                                self.bad_solver.add_clause(&!&constraint);
+                            }
+            }
+        }
+
         self.solvers.push(solver);
         self.frame.push(Frame::new());
         if self.level() == 0 {
@@ -113,6 +140,261 @@ impl IC3 {
         (self.level() + 1, cube)
     }
 
+    fn equiv_predicate_total_replacement(&mut self, frame: usize, cube: &LitVec) -> Vec<LitVec> {
+        let relation = RelationData::get_relation_data();
+        let mut predicate_cube = LitVec::new();
+        let mut seen = GHashSet::new(); // Track variables already handled
+        let mut added = GHashSet::new(); // Track vars added to predicate_cube
+
+        let mut changed = false;
+        for lit in cube.iter() {
+            let var = lit.var();
+            let polarity = lit.polarity();
+
+            // Skip if already processed
+            if seen.contains(&var) {
+                continue;
+            }
+            seen.insert(var);
+
+            // Check symmetric
+            if relation.get_sym_var_new(var.0 as usize) == None {
+                trace!("No symmetric variable for var: {} {}", var.0, var);
+                continue; // Skip if no symmetric variable
+
+            }
+            let sym_var = Var::new(relation.get_sym_var_new(var.0 as usize).unwrap()); 
+            seen.insert(sym_var);
+            
+            let temp_lit = sym_var.lit();
+            let sym_lit = if cube.contains(&temp_lit) {
+                Some(temp_lit)
+            } else if cube.contains(&!temp_lit) {
+                Some(!temp_lit)
+            } else {
+                None
+            }; 
+            // Check if symmetric literal is also in litvec
+            if sym_lit.is_some(){
+                trace!("Found symmetric variable: {} {}", var.0, var);
+                let sym_lit = sym_lit.unwrap();
+                // Opposite polarity?
+                if polarity != sym_lit.polarity() {
+                    trace!("Find opposite polarity for symmetric variable: {} {}", var.0, var);
+                    // Replace with predicate variable
+                    if relation.get_equiv_predicate_new(var.0 as usize) == None{
+                        trace!("No equivalence predicate found for var: {} {}", var.0, var);
+                        continue; // Skip if no equivalence predicate
+                    }
+                    if let Some(pred_var) = relation.get_equiv_predicate_new(var.0 as usize).map(Var::new) {
+                        if added.insert(pred_var) {
+                            predicate_cube.push(pred_var.lit());
+                            changed = true;
+                        }
+                    }
+                    continue; // Skip adding original pair
+                }
+            }
+
+            // Add original literal if not already added
+            if added.insert(var) {
+                predicate_cube.push(*lit);
+            }
+        }
+        let mut result: Vec<LitVec> = Vec::new();
+
+        if changed{
+            let original_lemma = LitOrdVec::new(cube.clone());
+            let predicate_lemma = LitOrdVec::new(predicate_cube.clone());
+            trace!("trying equivalence predicate replacement frame:{frame}, {original_lemma} -> {predicate_lemma}");
+            if self.blocked_with_ordered(frame, &predicate_cube, false, true){
+                trace!("Successful Replacement");
+                if let Some(core) = self.solvers[frame - 1].inductive_core()
+                {
+                    result.push(core);
+                }
+                else {
+                    result.push(predicate_cube);
+                }
+                if (self.statistic.max_predicates == 0) {
+                    self.statistic.max_predicates = 1;
+                }
+            }
+            else {
+                result.push(cube.clone());
+            }
+        }
+
+        result
+    }
+
+    /// Perform MIC by replacing variables with their equivalence predicates
+    fn equiv_predicate_iterative_replacement(&mut self, frame: usize, mut cube: &LitVec) -> Vec<LitVec>{
+        let relation = RelationData::get_relation_data();
+        let mut seen_predicates = GHashSet::new();
+        let mut pred_to_lits: GHashMap<usize, Vec<Lit>> = GHashMap::default();
+        let mut cube = cube.clone();
+
+        // Step 1: Group literals in the cube by their equivalence predicate (if any)
+        for lit in &cube {
+            if let Some(pred_id) = relation.get_equiv_predicate_new(lit.var().0 as usize) {
+                pred_to_lits.entry(pred_id).or_default().push(*lit);
+            }
+        }
+
+        let mut result: Vec<LitVec> = Vec::new();
+        let mut pred_num = 0;
+        // Step 2: Try one replacement per predicate group
+        for (pred_id, lits) in pred_to_lits.into_iter() {
+            if seen_predicates.contains(&pred_id) {
+                continue;
+            }
+            seen_predicates.insert(pred_id);
+
+            let mut to_remove = GHashSet::new();
+            let mut matched = false;
+            
+
+            // Step 2a: Pairwise polarity check between symmetric bits
+            for &lit in &lits {
+                let var = lit.var();
+                if let Some(sym_id) = relation.get_sym_var_new(var.0 as usize) {
+                    let sym_var = Var::new(sym_id);
+                    let sym_lit = sym_var.lit();
+
+                    // Determine the polarity of the symmetric literal to match
+                    let target_lit = if lit.polarity() { !sym_lit } else { sym_lit };
+
+                    if cube.contains(&target_lit) {
+                        matched = true;
+                        to_remove.insert(var);
+                        to_remove.insert(sym_var);
+                    }
+                }
+            }
+
+            // Step 3: Attempt generalization if at least one pair matched
+            if matched {
+                let pred_lit = Var::new(pred_id).lit();
+                let mut new_cube: LitVec = cube.iter()
+                    .filter(|l| !to_remove.contains(&l.var()))
+                    .cloned()
+                    .collect();
+                new_cube.push(pred_lit);
+
+                if self.blocked_with_ordered(frame, &new_cube, false, true) {
+                    trace!("Successful equiv predicate replacement: {:?} → {:?}", cube, new_cube);
+                    if let Some(core) = self.solvers[frame - 1].inductive_core()
+                    {
+                        cube = core;
+                    }
+                    else {
+                        cube = new_cube;
+                    }
+                    pred_num += 1;
+                    }
+            }
+        }
+        if pred_num > self.statistic.max_predicates{
+            self.statistic.max_predicates = pred_num;
+        }
+        result.push(cube);
+        result
+    }
+
+    fn equiv_predicate_exhaustive_replacement(
+        &mut self, 
+        frame: usize, 
+        cube: &LitVec
+    )-> Vec<LitVec> {
+        let relation = RelationData::get_relation_data();
+        let mut pred_to_lits: GHashMap<usize, Vec<Lit>> = GHashMap::default();
+
+        // Step 1: Group literals in the cube by their equivalence predicate (if any)
+        for &lit in cube {
+            if let Some(pred_id) = relation.get_equiv_predicate_new(lit.var().0 as usize) {
+                let var = lit.var();
+                if let Some(sym_id) = relation.get_sym_var_new(var.0 as usize){
+                    let sym_var = Var::new(sym_id);
+                    let sym_lit = sym_var.lit();
+                    // Determine the polarity of the symmetric literal to match
+                    let target_lit = if lit.polarity() { !sym_lit } else { sym_lit };
+
+                    if cube.contains(&target_lit){
+                        pred_to_lits.entry(pred_id).or_default().push(lit);
+                    }
+                }
+            }
+        }
+        // Sort by the number of literals corresponding to every predicate
+        // So the resultant cube will be 
+        // pred_to_lits = pred_to_lits.into_iter()
+        // .sorted_by_key(|(_, lits)| lits.len())
+        // .collect();
+
+        let num_preds = pred_to_lits.len();
+        if num_preds > self.statistic.max_predicates{
+            self.statistic.max_predicates = num_preds;
+        }
+        let mut replacement_queue: VecDeque<Vec<bool>> = VecDeque::new();
+        replacement_queue.push_back(vec! [true; num_preds]);
+        let mut replacement_tried: GHashSet<Vec<bool>> = GHashSet::new();
+
+
+        let mut result: Vec<LitVec> = Vec::new();
+        while let Some(replacement) = replacement_queue.pop_front() {
+            if replacement.iter().all(|&b| !b) {
+                continue;
+            }
+            let mut new_cube: LitVec = cube.clone();
+
+            // Apply the replacement
+            for (i, (pred_id, lits)) in pred_to_lits.iter().enumerate() {
+                if replacement[i] {
+                    // Remove all lits in this predicate group
+                    new_cube.retain(|l| !lits.contains(l));
+                    
+                    // Add the predicate literal
+                    let pred_lit = Var::new(*pred_id).lit();
+                    new_cube.push(pred_lit);
+                }
+            }
+
+            let original_lemma = LitOrdVec::new(cube.clone());
+            let predicate_lemma = LitOrdVec::new(new_cube.clone());
+            trace!("trying equivalence predicate replacement frame:{frame}, {original_lemma} -> {predicate_lemma}");
+            
+            if self.blocked_with_ordered(frame, &new_cube, false, true) {
+                trace!("Successful Replacement");
+                if let Some(core) = self.solvers[frame - 1].inductive_core()
+                {
+                    result.push(core);
+                }
+                else {
+                    result.push(new_cube);
+                }
+            }
+            else {
+                for (i, &val) in replacement.iter().enumerate() {
+                    if val {
+                        let mut new_replacement = replacement.clone();
+                        new_replacement[i] = false;
+                        if !replacement_tried.contains(&new_replacement){
+                            replacement_queue.push_back(new_replacement);
+                        }
+                    }
+                }
+            }
+
+            replacement_tried.insert(replacement);
+
+
+        }
+
+
+        result
+    }
+
     fn generalize(&mut self, mut po: ProofObligation, mic_type: MicType) -> bool {
         let Some(mut mic) = self.solvers[po.frame - 1].inductive_core() else {
             assert!(self.tsctx.cube_subsume_init(&po.lemma));
@@ -121,12 +403,39 @@ impl IC3 {
             return self.add_lemma(po.frame - 1, po.lemma.cube().clone(), false, Some(po));
         };
         mic = self.mic(po.frame, mic, &[], mic_type);
-        let (frame, mic) = self.push_lemma(po.frame, mic);
-        self.statistic.avg_po_cube_len += po.lemma.len();
-        po.push_to(frame);
-        self.add_obligation(po.clone());
-        if self.add_lemma(frame - 1, mic.clone(), false, Some(po)) {
-            return true;
+        if self.cfg.equiv_predicate{
+            let mut result = Vec::new();
+            if self.cfg.iterative_predicate_replacement {
+                result = self.equiv_predicate_iterative_replacement(po.frame, &mic);
+            }
+            else if self.cfg.exhaustive_predicate_replacement {
+                result = self.equiv_predicate_exhaustive_replacement(po.frame, &mic);
+            }
+            else {
+                result = self.equiv_predicate_total_replacement(po.frame, &mic);
+            }
+            let mut max_frame = 0;
+            for cube in result {
+                let (frame, mic) = self.push_lemma(po.frame, cube);
+                if self.add_lemma(frame - 1, mic.clone(), false, Some(po.clone())) {
+                return true;
+            }
+                if (frame > max_frame){
+                    max_frame = frame;
+                }
+            }
+            self.statistic.avg_po_cube_len += po.lemma.len();
+            po.push_to(max_frame);
+            self.add_obligation(po.clone());
+        }
+        else {
+            let (frame, mic) = self.push_lemma(po.frame, mic);
+            self.statistic.avg_po_cube_len += po.lemma.len();
+            po.push_to(frame);
+            self.add_obligation(po.clone());
+            if self.add_lemma(frame - 1, mic.clone(), false, Some(po)) {
+                return true;
+            }
         }
         false
     }
@@ -256,8 +565,32 @@ impl IC3 {
             ) {
                 let mut mic = self.solvers[frame - 1].inductive_core().unwrap();
                 mic = self.mic(frame, mic, constraint, MicType::DropVar(parameter));
-                let (frame, mic) = self.push_lemma(frame, mic);
-                self.add_lemma(frame - 1, mic, false, None);
+                if self.cfg.equiv_predicate {
+                    let mut result = Vec::new();
+                    if self.cfg.iterative_predicate_replacement {
+                        result = self.equiv_predicate_iterative_replacement(frame, &mic);
+                    }
+                    else if self.cfg.exhaustive_predicate_replacement {
+                        result = self.equiv_predicate_exhaustive_replacement(frame, &mic);
+                    }
+                    else {
+                        result = self.equiv_predicate_total_replacement(frame, &mic);
+                    }
+                    let mut max_frame = 0;
+                    for cube in result {
+                        let (frame, mic) = self.push_lemma(frame, cube);
+                        if self.add_lemma(frame - 1, mic.clone(), false, None) {
+                        return true;
+                    }
+                        if (frame > max_frame) {
+                            max_frame = frame;
+                        }
+                    }
+                }    
+                else {
+                    let (frame, mic) = self.push_lemma(frame, mic);
+                    self.add_lemma(frame - 1, mic, false, None);
+                }
                 return true;
             } else {
                 if *limit == 0 {

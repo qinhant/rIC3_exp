@@ -236,13 +236,27 @@ impl IC3 {
         contained_check: bool,
         po: Option<ProofObligation>,
     ) -> bool {
+        let sym_lemma = if self.cfg.symmetry {
+            Some(LitOrdVec::new(secIC3::symmetric_cube(&lemma)))
+        } else {
+            None
+        };
         let lemma = LitOrdVec::new(lemma);
         trace!("add lemma: frame:{frame}, {lemma}");
+        if let Some(sym) = sym_lemma.as_ref() {
+            trace!("adding symmetric lemma: frame:{frame}, {sym}");
+        }
         if frame == 0 {
             assert!(self.frame.len() == 1);
             self.solvers[0].add_clause(&!lemma.cube());
+            if let Some(sym) = sym_lemma.as_ref() {
+                self.solvers[0].add_clause(&!sym.cube());
+            }
             if !self.cfg.ic3.no_pred_prop && self.level() == frame {
                 self.bad_solver.add_clause(&!lemma.cube());
+                if let Some(sym) = sym_lemma.as_ref() {
+                    self.bad_solver.add_clause(&!sym.cube());
+                }
             }
             self.frame[0].push(FrameLemma::new(lemma, po, None));
             return false;
@@ -262,9 +276,15 @@ impl IC3 {
                         let clause = !lemma.cube();
                         for k in i + 1..=frame {
                             self.solvers[k].add_clause(&clause);
+                            if let Some(sym) = sym_lemma.as_ref() {
+                                self.solvers[k].add_clause(&!sym.cube());
+                            }
                         }
                         if !self.cfg.ic3.no_pred_prop && self.level() == frame {
                             self.bad_solver.add_clause(&!lemma.cube());
+                            if let Some(sym) = sym_lemma.as_ref() {
+                                self.bad_solver.add_clause(&!sym.cube());
+                            }
                         }
                         self.frame[frame].push(FrameLemma::new(lemma, po, None));
                         self.frame.early = self.frame.early.min(i + 1);
@@ -289,9 +309,15 @@ impl IC3 {
         let begin = begin.unwrap_or(1);
         for i in begin..=frame {
             self.solvers[i].add_clause(&clause);
+            if let Some(sym) = sym_lemma.as_ref() {
+                self.solvers[0].add_clause(&!sym.cube());
+            }
         }
         if !self.cfg.ic3.no_pred_prop && self.level() == frame {
             self.bad_solver.add_clause(&clause);
+            if let Some(sym) = sym_lemma.as_ref() {
+                self.bad_solver.add_clause(&!sym.cube());
+            }
         }
         self.frame[frame].push(FrameLemma::new(lemma, po, None));
         self.frame.early = self.frame.early.min(begin);

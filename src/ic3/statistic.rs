@@ -33,4 +33,5 @@ pub struct Statistic {
     pub num_auxiliary_var: usize,
 
     pub test: SuccessRate,
+    pub max_predicates: usize,
 }
